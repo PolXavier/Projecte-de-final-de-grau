@@ -1,0 +1,594 @@
+---
+title: "Descriptive analysis of the data"
+author: "Pol Xavier Pérez"
+date: "2023-01-18"
+output: html_document
+---
+
+
+# Always run this chunks at the beggining
+
+```{r}
+#Table1: Sample size and genetic diversity indices of the mitochondrial lineages from indigenous and admixed populations from Brazil
+
+library("readxl")
+
+raw_mitogenomes_read <- read_excel("drive-download-20230118T144007Z-001/mitochondrial.analysis.2021.xlsx", skip = 2)
+
+raw_mitogenomes <- raw_mitogenomes_read
+table(raw_mitogenomes$`Population/Categories`)
+
+#modify rownames of column Population/Categories
+library(dbplyr)
+#as.factor --> to use levels
+
+#add new column "Population/Categories2"
+raw_mitogenomes$`Population/Categories2` <- with(raw_mitogenomes, factor(`Population/Categories`, levels = c('admix.arg','admix.Bra','ancient.arg','ancient.Bra', 'Paleoamerican', 'Native'), labels = c('admixed', 'admixed', 'aDNA','aDNA', 'aDNA', 'Native')))
+raw_mitogenomes$`Population/Categories`[raw_mitogenomes$`Population/Categories` == 'Paleoamerican'] <- 'ancient.Bra'
+
+
+table(raw_mitogenomes$`Population/Categories`)
+table(raw_mitogenomes$`Population/Categories2`)
+
+#concatenate all columns from polymorphism to index 1002
+dim(raw_mitogenomes)
+my_columns <- c(colnames(raw_mitogenomes[, 11:1002]))
+
+#remove repeated columns
+raw_mitogenomes <- raw_mitogenomes[, ! colnames(raw_mitogenomes) %in% my_columns]
+length(unique(raw_mitogenomes$`Individuals (n)`))
+
+
+#subpopulation of natives
+#creating new dataframe for id_natives and its populations (languages)
+library("ape")
+
+data_id_natives <- data.frame()
+for (natives_files in list.files(path = "drive-download-20230118T144007Z-001/fastas/all/natives/nativesafteraliasbrandini/")){
+  native_file <- read.FASTA(paste0("drive-download-20230118T144007Z-001/fastas/all/natives/nativesafteraliasbrandini/", natives_files))
+  for (pop_and_id in 1:length(names(native_file))){
+    id <- gsub( " .*$", "", names(native_file)[pop_and_id])
+    population <- gsub( ".fa.*", "", natives_files)
+    new_row = c(id, population)
+    data_id_natives = rbind(data_id_natives, new_row)
+  }
+}
+colnames(data_id_natives) <- c("ID", "Population")
+dim(data_id_natives)
+
+table(data_id_natives$Population)
+
+#Change column Population/Categories
+###
+for (each_native_id in data_id_natives$ID){ raw_mitogenomes$`Population/Categories`[raw_mitogenomes$`Individuals (n)` == each_native_id] <- data_id_natives$Population[data_id_natives$ID == each_native_id]
+}
+
+
+
+```
+
+
+```{r}
+#Calculate number of sequences per population
+counts_sequences2 <- table(raw_mitogenomes$`Population/Categories2`)
+counts_sequences <- table(raw_mitogenomes$`Population/Categories`)
+table_counts_seq2 <- data.frame(counts_sequences2)
+table_counts_seq <- data.frame(counts_sequences)
+
+#Create descriptive dataframe
+Descriptive_data <- rbind(table_counts_seq2, table_counts_seq)
+colnames(Descriptive_data) <- c("Population", "Number of sequences")
+```
+
+
+
+```{r}
+# Number of haplogroups
+
+populations <- levels(raw_mitogenomes$`Population/Categories2`)
+subpopulations <- levels(as.factor(raw_mitogenomes$`Population/Categories`))
+vector_all_populations <- c(populations, subpopulations)
+vector_all_populations
+
+Number_of_haplogroups <- data.frame()
+for (population in vector_all_populations){
+  counts <- length(levels(as.factor(raw_mitogenomes[ raw_mitogenomes$`Population/Categories2` == population | raw_mitogenomes$`Population/Categories` == population,]$`haplogroups(n)`)))
+  Number_of_haplogroups <- rbind(Number_of_haplogroups, counts)
+}
+colnames(Number_of_haplogroups)[1] <- "H (# of haplogroups)"
+
+Descriptive_data_2 <- data.frame()
+Descriptive_data_2 <- cbind(Descriptive_data, Number_of_haplogroups)
+
+
+#remove populations with low sequence numbers. They do not have any statsistical power
+
+Descriptive_data_2 <- Descriptive_data_2[Descriptive_data_2$`Number of sequences` >= 18,]
+
+```
+
+
+
+
+```{r}
+#native multifastas
+
+native_brazilians <- read_excel("drive-download-20230118T144007Z-001/lists/native_brazilians.xlsx")
+colnames(native_brazilians)[1] <- "sample_id"
+colnames(native_brazilians)[7] <- "Language"
+
+population_natives <- read_excel("drive-download-20230118T144007Z-001/lists/Population_natives.xlsx")
+
+library(dplyr)
+id_natives <- bind_rows(select(native_brazilians, sample_id, Language)
+, select(population_natives, sample_id, Language))
+
+id_natives_def <- id_natives[!duplicated(id_natives), ]
+
+table(id_natives_def$Language)
+
+
+```
+
+
+
+```{r}
+#Haplotype frequencies in each pop
+
+library(ape)
+library(pegas)
+library(adegenet)
+
+data_haplotypes <- data.frame()
+for (files in list.files(path = "drive-download-20230118T144007Z-001/fastasforhaplotypes")){
+  fasta <- read.FASTA(paste0("drive-download-20230118T144007Z-001/fastasforhaplotypes/", files))
+  haplotypes <- haplotype(fasta, strict = T)
+  number_of_haplotypes <- length(summary(haplotypes))
+  Nucleotide_diversity <- round(nuc.div(fasta), digits = 5)
+  id_population <- gsub( ".fa.*", "", files)
+  HD <- round(number_of_haplotypes/Descriptive_data_2$`Number of sequences`[Descriptive_data_2$Population == id_population], digits = 3)
+  Haplogroup_D <- round(Descriptive_data_2$`H (# of haplogroups)`[Descriptive_data_2$Population == id_population]/Descriptive_data_2$`Number of sequences`[Descriptive_data_2$Population == id_population], digits = 3)
+  new_row = c(id_population, number_of_haplotypes, HD, Haplogroup_D, Nucleotide_diversity)
+  data_haplotypes <- rbind(data_haplotypes, new_row)
+}
+
+nuc.div(haplotype(read.FASTA("drive-download-20230118T144007Z-001/fastasforhaplotypes/admixed.fa"), strict = T))
+
+colnames(data_haplotypes) <- c("Population", "Number of haplotypes", "HD", "Haplogroup diversity", "π (Nucleotide diversity)")
+
+
+ordered_data_haplotypes <- data.frame()
+for (each_population in Descriptive_data_2$Population){
+  o_haplotype_number <- data_haplotypes$`Number of haplotypes`[data_haplotypes$Population == each_population]
+  o_HD <- data_haplotypes$HD[data_haplotypes$Population == each_population]
+  o_nucleotide_diversity <- data_haplotypes$`π (Nucleotide diversity`[data_haplotypes$Population == each_population]
+  o_Haplogroup_D <- data_haplotypes$`Haplogroup diversity`[data_haplotypes$Population == each_population]
+  ordered_new_row = c(o_haplotype_number, o_HD, o_Haplogroup_D ,o_nucleotide_diversity)
+  ordered_data_haplotypes <- rbind(ordered_data_haplotypes, ordered_new_row)
+  }
+colnames(ordered_data_haplotypes) <- c("Number of haplotypes", "HD", "Haplogroup diversity", "π (Nucleotide diversity)")
+Descriptive_data_3 <- data.frame()
+Descriptive_data_3 <- cbind(Descriptive_data_2, ordered_data_haplotypes)
+
+
+write.csv2(Descriptive_data_3, file = "Descriptive_Analysis.csv", row.names = F)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Haplotype time!
+## it does not work
+```{r}
+library(ape)
+
+Shared_haplotypes <- data.frame()
+for (pop_i in list.files(path = "drive-download-20230118T144007Z-001/fastasforhaplotypes")){
+  for (pop_j in list.files(path = "drive-download-20230118T144007Z-001/fastasforhaplotypes")){
+    fasta_i <- read.dna(paste0("drive-download-20230118T144007Z-001/fastasforhaplotypes/", pop_i), format = "fasta")
+    fasta_j <- read.dna(paste0("drive-download-20230118T144007Z-001/fastasforhaplotypes/", pop_j), format = "fasta")
+    A <- length(summary(haplotype(fasta_i , strict = F)))
+    B <- length(summary(haplotype(fasta_j , strict = F)))
+    AB <- length(summary(haplotype(rbind(fasta_i, fasta_j))))
+    Shared_A_B <- A + B - AB
+    print(Shared_A_B)
+    vector_shared <- c(Shared_A_B, gsub( ".fa.*", "", pop_i), gsub( ".fa.*", "", pop_j))
+    Shared_haplotypes <- rbind(Shared_haplotypes, vector_shared)
+  }
+}
+
+fasta_i <- read.dna("drive-download-20230118T144007Z-001/fastasforhaplotypes/admix.Bra.fa", format = "fasta")
+fasta_j <- read.dna("drive-download-20230118T144007Z-001/fastasforhaplotypes/Arawak.fa", format = "fasta")
+fasta_k <- read.dna("drive-download-20230118T144007Z-001/fastasforhaplotypes/prova.fas", format = "fasta")
+
+
+
+prova<- rbind(fasta_i,fasta_j)
+haplotype(prova, strict = F)
+A <- length(summary(haplotype(fasta_i , strict = F)))
+B <- length(summary(haplotype(fasta_j , strict = F)))
+AB <- length(summary(haplotype(rbind(fasta_i, fasta_j))))
+ab2 <- length(summary(haplotype(fasta_k , strict = F)))
+Shared_A_B <- A + B - AB
+Shared_A_B
+A
+B
+AB
+ab2
+prova
+
+
+```
+
+
+## very slow and wrong result
+
+```{r}
+
+BiocManager::install("Biostrings")
+
+# Load the library
+library(Biostrings)
+
+list_files <- list.files(path = "drive-download-20230118T144007Z-001/pruebafastas/")
+
+for (i in 1: (length(list_files)-1)){
+  fasta1 <- readDNAStringSet(paste0("drive-download-20230118T144007Z-001/pruebafastas/", list_files[i]))
+  for (j in i:(length(list_files)-1)){
+    fasta2 <- readDNAStringSet(paste0("drive-download-20230118T144007Z-001/pruebafastas/", list_files[1 + j]))
+    
+    dat<- data.frame()
+    for (ii in 1:length(fasta1)) {
+      seq1 <- strsplit(as.character(fasta1), "")[[ii]]
+      for (jj in 1:length(fasta2)) {
+        seq2 <- strsplit(as.character(fasta2), "")[[jj]]
+        num_differences <- sum(mapply(function(x, y) x != y & x != "N" & y != "N", seq1, seq2))
+        if (num_differences <= 5) {
+        vec<- c(fasta1@ranges@NAMES[ii],fasta2@ranges@NAMES[jj],num_differences)
+        dat <- rbind(dat,vec)      
+        
+        }
+      }
+    }
+    write.table(dat, file = paste0(list_files[i], list_files[j+1], "common_haplotyopes.txt"))
+  }
+}
+
+
+```
+
+
+#Haplogroups
+
+## time for haplogroups!!
+
+ARIASBRANDINI-change
+```{r}
+#Barplot of haplogroups
+
+library(ggplot2)
+
+table(raw_mitogenomes$`Population/Categories`)
+
+sub_raw_mitogenomes <- subset(raw_mitogenomes, `Population/Categories` %in% c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Je", "Arawak", "Tupi", "Native2", "EasternTukanoan", "Ecuador", "Guahiban", "MakuPuinave",
+"WesternTukanoan"))
+
+Haplogroup_freq_subpopulations <- ggplot(sub_raw_mitogenomes, aes(`Population/Categories` , fill = substr(`haplogroups(n)`, 1, 2))) +
+  geom_bar() +
+  scale_fill_discrete(name = "Haplogroups") +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Je", "Arawak", "Tupi", "Native2", "EasternTukanoan", "Ecuador", "Guahiban", "MakuPuinave",
+"WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Je", "Arawak", "Tupi", "Native2", "EasternTukanoan", "Ecuador", "Guahiban", "MakuPuinave",
+"WesternTukanoan")) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Haplogroup composition", y = "# individuals for each haplogroup", x = "Population")
+
+png(filename = "Haplogroups_subpopulation.png", width = 900, height = 700, res = 150)
+Haplogroup_freq_subpopulations
+dev.off()
+
+
+Haplogroup_freq_populations <- ggplot(raw_mitogenomes, aes(`Population/Categories2` , fill = substr(`haplogroups(n)`, 1, 2))) +
+  geom_bar() +
+  scale_fill_discrete(name = "Haplogroups") +
+  coord_flip() +
+  theme_minimal() +
+  labs(y = "# individuals for each haplogroup", x = "Population")
+
+png(filename = "Haplogroups_population.png", width = 900, height = 700, res = 150)
+Haplogroup_freq_populations
+dev.off()
+
+
+norm_Haplogroup_freq_subpopulations <- ggplot(sub_raw_mitogenomes, aes(`Population/Categories` , fill = substr(`haplogroups(n)`, 1, 2))) +
+  geom_bar(position = "fill") +
+  scale_fill_discrete(name = "Haplogroups") +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Je", "Arawak", "Tupi", "Native2", "EasternTukanoan", "Ecuador", "Guahiban", "MakuPuinave",
+"WesternTukanoan"), labels = c("Admixed Argentinian n = 93", "Admixed Brazilian n = 711", "Ancient Argentinian n = 39", "Ancient Brazilian n = 38", "Je = 32", "Arawak n = 114", "Tupi n = 61", "Rest of natives grouped n = 222", "EasternTukanoan n = 66", "Ecuador n = 208", "Guahiban n = 51", "MakuPuinave n = 35",
+"WesternTukanoan n = 36")) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Haplogroup composition", y = "% individuals for each haplogroup", x = "Population")
+
+png(filename = "Normalized_haplogroups_subpopulation.png", width = 900, height = 700, res = 150)
+norm_Haplogroup_freq_subpopulations
+dev.off()
+
+
+norm_Haplogroup_freq_populations <- ggplot(raw_mitogenomes, aes(`Population/Categories2` , fill = substr(`haplogroups(n)`, 1, 2))) +
+  geom_bar(position = "fill") +
+  scale_fill_discrete(name = "Haplogroups") +
+  scale_x_discrete(limits = c("Native", "aDNA", "admixed"), labels = c("Native n = 825", "aDNA n = 77", "admixed n = 804")) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Haplogroup composition", y = "% individuals for each haplogroup", x = "Population")
+
+png(filename = "Normalized_haplogroups_population.png", width = 900, height = 700, res = 150)
+norm_Haplogroup_freq_populations
+dev.off()
+
+
+
+```
+
+
+## Using fasta file, we create a heatmap with nucleotide diversity between populations to observe how similars are between them
+
+```{r}
+# creating DNAbin object
+
+library("apex")
+library("mmod")
+
+
+beeData <- read.FASTA("drive-download-20230118T144007Z-001/TodosA.fa")
+class(beeData)
+
+id_population <- data.frame()
+for (natives_files in list.files(path = "drive-download-20230118T144007Z-001/fastasdiferentiationmatrix/")){
+  native_file <- read.FASTA(paste0("drive-download-20230118T144007Z-001/fastasdiferentiationmatrix/", natives_files))
+  for (pop_and_id in 1:length(names(native_file))){
+    id <- gsub( " .*$", "", names(native_file)[pop_and_id])
+    population <- gsub( ".fa.*", "", natives_files)
+    new_row = c(id, population)
+    id_population = rbind(id_population, new_row)
+  }
+}
+
+colnames(id_population) <- c("ID", "Population")
+
+write.table(id_population, "id_population.txt", sep = "\t")
+
+beeData.gid <- DNAbin2genind(beeData)
+
+strata(beeData.gid) <- id_population
+setPop(beeData.gid) <- ~Population
+beeData.gid
+
+#it uses nucleotide diversity
+diferentiation_matrix <- pairwise_Gst_Nei(beeData.gid, linearized = FALSE)
+
+mds<- cmdscale(d = diferentiation_matrix,eig = T)
+mds<- as.data.frame(mds$points)
+library(ggplot2)
+library(ggrepel)
+mdsp <- ggplot(mds, mapping = aes(x = V1,y = V2))+
+  geom_point(col="black")+
+  geom_label_repel(aes(label=rownames(mds)))+
+  labs(title = "multidimensional scaling (MDS)", y = "Dim 2", x = "Dim 1") +
+  theme(legend.position = "none")+
+  theme_bw()
+  
+png(filename = "MDS.png", width = 900, height = 700, res = 150)
+mdsp
+dev.off()
+
+library("spider")
+
+diferentiation_matrix <- round(diferentiation_matrix, digits = 3)
+
+vector_populations_h <- c("adm.arg", "adm.Bra", "anct.arg", "anct.Bra", "Arawak", "ETukano", "Ecuador", "Guahiban", "Je", "MakuPu","Rest of natives \n grouped", "Tupi", "WTukano")
+
+png(filename = "Heatmap_distances.png", width = 900, height = 700)
+heatmapSpp(diferentiation_matrix, vector_populations_h, triangle = "lower", showData = TRUE, dataCEX = 1.2)
+dev.off()
+```
+
+
+## I create plots to observe haplogroup sharing in different meuserments
+
+```{r}
+#haplogroup sharing
+
+table(raw_mitogenomes$`Population/Categories`)
+
+vector_populations <- c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan")
+
+
+m_shared_haplogroups <- data.frame()
+for (population in vector_populations){
+  vector_of_counts <- c()
+  for (population_2 in vector_populations){
+    chosen_haplogroups_dataset <- subset(raw_mitogenomes, `haplogroups(n)` %in% unique(raw_mitogenomes$`haplogroups(n)`[raw_mitogenomes$`Population/Categories` == population | raw_mitogenomes$`Population/Categories2` == population]))
+    #subset data --> just rows with same haplogroups as pop1
+    counts_shared_haplogroups <- length(chosen_haplogroups_dataset$`haplogroups(n)`[chosen_haplogroups_dataset$`Population/Categories` == population_2 | chosen_haplogroups_dataset$`Population/Categories2` == population_2])
+    #count from subset data # of rows for each population: Pop1, pop2...
+    vector_of_counts <- c(vector_of_counts, counts_shared_haplogroups)
+  }
+  m_shared_haplogroups <- rbind(m_shared_haplogroups, vector_of_counts)
+}
+
+
+colnames(m_shared_haplogroups) <- vector_populations
+m_shared_haplogroups <- cbind(m_shared_haplogroups, vector_populations)
+
+#chosen <- subset(sub_raw_mitogenomes, `haplogroups(n)` %in% unique(sub_raw_mitogenomes$`haplogroups(n)`[sub_raw_mitogenomes$`Population/Categories` == "ancient.arg" | sub_raw_mitogenomes$`Population/Categories2` == "ancient.arg"]))
+
+#length(chosen$`haplogroups(n)`[chosen$`Population/Categories` == "admix.Bra" | chosen$`Population/Categories2` == "admix.Bra"])
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+l_shared_haplogroups <- gather(m_shared_haplogroups, pop_2, counts, admix.arg:WesternTukanoan)
+
+ggplot(l_shared_haplogroups, aes(x = vector_populations, y= counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  theme_minimal() +
+  labs(title = "# shared haplogroups between populations", y = "Counts", x = "Population") +
+  coord_flip()+
+  scale_fill_viridis_d()
+
+
+Descriptive_analysis <- read.csv2("~/Desktop/TFG/Descriptive_Analysis.csv")
+
+number_seq_pop <- data.frame()
+for(each_pop2 in l_shared_haplogroups$pop_2){
+  n_s <- Descriptive_analysis$Number.of.sequences[each_pop2 == Descriptive_analysis$Population]
+  number_seq_pop <- rbind(number_seq_pop, n_s)
+}
+
+colnames(number_seq_pop) <- "Number of sequences"
+l_shared_haplogroups <- cbind(l_shared_haplogroups, number_seq_pop)
+
+l_shared_haplogroups <- l_shared_haplogroups %>% mutate(normalized_counts = counts/`Number of sequences`)
+
+png(filename = "Je_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Je") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "Arawak_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Arawak") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "Tupi_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Tupi") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "Native2_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Native2") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+
+png(filename = "ancient.Bra_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "ancient.Bra") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+png(filename = "ancient.arg_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "ancient.arg") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "EasternTukanoan_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "EasternTukanoan") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "Ecuador_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Ecuador") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "Guahiban_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "Guahiban") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+
+png(filename = "WesternTukanoan_donor.png", width = 1200, height = 800, res = 150)
+ggplot(subset(l_shared_haplogroups, vector_populations == "WesternTukanoan") , aes(x = pop_2, y = normalized_counts, fill = pop_2)) +
+  geom_bar(stat = "identity", position = "stack" ) +
+  scale_x_discrete(limits = c("admix.arg", "admix.Bra", "ancient.arg", "ancient.Bra", "Arawak", "EasternTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave","Native2", "Tupi", "WesternTukanoan"), labels = c("Admixed Argentinian", "Admixed Brazilian", "Ancient Argentinian", "Ancient Brazilian", "Arawak", "EastTukanoan", "Ecuador", "Guahiban", "Je", "MakuPuinave",  "Rest of natives \n grouped", "Tupi", "WestTukanoan")) +
+  theme_minimal() +
+  labs(title = "Haplogroup sharing", subtitle = "Donor population (Je)", y = "% of sequences from \n Acceptor populations \n that share haplogrous \n with the Donor populations", x = "Acceptor populations") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5), axis.title.y = element_text(angle = 0, vjust = 0.5), legend.position = "none") +
+  scale_fill_viridis_d()
+dev.off()
+
+```
+
+```{r}
+
+#julen! differentiation matrix and haplogroup sharing, incongruent
+hohoho
+
+#
+
+# mitogenomes Arias, Brandin...???
+# Network haplogroups
+pegas, network fluxus engineering
+
+#haplotypes.........
+
+#utilizar secuencias uniques de x poblacion y buscarlo en blast
+```
+
