@@ -1,5 +1,3 @@
 # Final-degree-project
 
-Data analysis needs
-
-the rest of files :)
+Note that the path to the directories used has to be changed to be able to run this code properly
