@@ -1,11 +1,11 @@
-#This python script is very useful when after downloading the sequences from blast for a specific haplogruoup in a genbank file
-#we use this file retrieve sequence per sequence what is its origin/population and creates a multifasta with this information.
-#so the output of running this program corresponds to a multifasta created based on the hits from a sequence from our
-#dataset belonging to a specific haplogroup where the first line correspond to the population/oringin + its original id.
+#This python script is very useful when after downloading the sequences from blast for a specific haplogruoup in a genbank file.
+#we use this file to retrieve sequence per sequence what is its origin/population and creates a multifasta with this information.
+#so the output of running this program corresponds to a multifasta created based on the hits from a sequence selected from our
+#dataset belonging to a specific haplogroup of interest, where the first line corresponds to the population/oringin + its original id.
 #These resulting files will be added with the multifastas with the sequences from our dataset that belong to that specific 
-#haplogroup for after analysis using Network 10.2.
+#haplogroup for the network analysis using Network 10.2.
 #as mentioned before, knowing to which population belong each sequence is crucial for the conclusions of this project and
-#this script is able to speed up this process.
+#this script can speed up this process.
 
 
 import os
